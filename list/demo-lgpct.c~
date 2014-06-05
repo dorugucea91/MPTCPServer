@@ -1,0 +1,89 @@
+/*-- demo-lgpct.c -- demonstratie lista generica cu elemente puncte din plan
+                     (punctele sunt memorate in campul info) --*/
+#include "tlg.h"
+#include "util.h"
+
+#include "polarssl/config.h"
+
+#include <string.h>
+#include <stdio.h>
+
+#include "polarssl/net.h"
+#include "polarssl/aes.h"
+#include "polarssl/dhm.h"
+#include "polarssl/rsa.h"
+#include "polarssl/sha1.h"
+#include "polarssl/entropy.h"
+#include "polarssl/ctr_drbg.h"
+
+typedef struct { int sockfd; char* dhm_key; } TSocket; 
+
+void display_sock_list(TLG a) {
+	while (a != NULL) {	
+		TSocket* sock = (TSocket*)(a->info);
+		printf("[%i %s]\n", sock->sockfd, sock->dhm_key);
+    	a = a->urm;
+	}
+  	return;
+}
+
+int Comp (void *p1) 
+{ 
+	int fd = ((TSocket*)(p1))->sockfd;
+  	return fd;
+}
+
+
+int main()
+{	
+	TLG sock_list = NULL;
+	
+	TSocket* test_sock1 = (TSocket*)malloc(sizeof(TSocket));
+	if (!test_sock1) {
+		printf("Memory Error\n");
+		return MEMORY_ERROR;
+	}
+	test_sock1->sockfd = 12;
+	char* key = malloc(100 * sizeof(char));
+	if (!key) {
+        // TODO: free memory
+		return MEMORY_ERROR;
+	}
+	strncpy(key, "FFFFDDDD", 8);
+	test_sock1->dhm_key = key;
+
+	InsLgP(&sock_list, test_sock1);
+		
+	display_sock_list(sock_list);	
+	
+	ALG a_sock = CautaLG(&sock_list, Comp, 12);
+	if (*a_sock) {
+		TSocket* t_sock = (TSocket*)((*a_sock)->info);
+		printf("Found: %i\n", t_sock->sockfd);	
+		ElimLgE(a_sock);	
+	}
+
+	
+	TSocket* test_sock2 = (TSocket*)malloc(sizeof(TSocket));
+	if (!test_sock2) {
+		printf("Memory Error\n");
+		return MEMORY_ERROR;
+	}
+	test_sock2->sockfd = 15;
+	char* key2 = malloc(100 * sizeof(char));
+	if (!key2) {
+        // TODO: free memory
+		return MEMORY_ERROR;
+	}
+	strncpy(key2, "xxxxxxxx", 8);
+	test_sock2->dhm_key = key2;	
+	InsLgP(&sock_list, test_sock2);
+	DistrLgE(&sock_list);	
+	
+	display_sock_list(sock_list);
+		
+	
+
+	return SUCCESS;
+}
+ 
