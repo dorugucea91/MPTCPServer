@@ -1,4 +1,3 @@
-
 #define _GNU_SOURCE
 
 #include <stdio.h>
@@ -23,8 +22,6 @@
 #define TOTAL_SIZE 8
 #define CRC_SIZE 16
 #define HEADER_SIZE 32
-#define RAND_GEN_ERROR -100
-#define DH_PARAMS_FILE_ERROR -101
 
 #define CORRECT_CRC 100
 #define WRONG_CRC 200
@@ -72,7 +69,7 @@ int roundUp(int numToRound, int multiple) {
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	printf("\n --- LD_PRELOAD accept --- \n");
-	int connfd, ret, i;
+	int connfd, ret;
 	FILE *f;
    	size_t n, length;
 
@@ -161,8 +158,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	printf("\n . Sending P parameter: ");
 	length = 1024;
 	if (mpi_write_string(&dhm.P, 16, (char*)buf, &length) == 0) {
-		for( i = 0; i < length; i++ )
-			printf( "%c", buf[i]);	
+		printf( "\n . Sent P parameter" );
 	}
 	else 
 		printf("mpi_write_string error, %i\n", length);
@@ -178,8 +174,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	printf("\n . Sending G parameter: ");
 	length = 1024;
 	if (mpi_write_string(&dhm.G, 16, (char*)buf, &length) == 0) {
-		for( i = 0; i < length; i++ )
-			printf( "%c", buf[i]);	
+		printf( "\n . Sent G  parameter" );
 	}
 	else 
 		printf("mpi_write_string error, %i\n", length);
@@ -195,8 +190,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	printf("\n . Sending GX parameter: ");
 	length = 1024;
 	if (mpi_write_string(&dhm.GX, 16, (char*)buf, &length) == 0) {
-		for( i = 0; i < length; i++ )
-			printf( "%c", buf[i]);	
+		printf( "\n . Sent X parameter" );
 	}
 	else 
 		printf("mpi_write_string error, %i\n", length);
@@ -213,10 +207,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	memset( buf, 0, sizeof( buf ) );
 	n = 512;
 	ret = (*original_recv)(connfd, buf, n, 0);
-
-	for( i = 0; i < n; i++ )
-			printf( "%c", buf[i]);
-	fflush(stdout);	
 	
 	if (ret < 0) {
 		dhm_free( &dhm );
@@ -263,190 +253,19 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	new_sock->buf_size = 0;
 	InsLgP(&sock_list, new_sock);
 	
-    	for( n = 0; n < 256; n++ )
-        	printf( "%02x", new_sock->dhm_key[n] );
-		
 	md5( new_sock->dhm_key, 256, md5sum );
-	printf( "\n  . MD5 on DH key: " );
+	printf( "\n . MD5 on DH key: " );
 	for( n = 0; n < 16; n++ )
         	printf( "%02x", md5sum[n] );	
 	
+	printf( "\n\n" );
 	fflush(stdout);
-	
-    	printf( "\n\n" );
-	
-
+    	
 	dhm_free( &dhm );
     	entropy_free( &entropy );
 	
 	return connfd;
 } 
-
-int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-	printf("\n--- LD_PRELOAD connect --- \n");	
-	int ret;
-	size_t buflen, n;
-	unsigned char buf[2048];
-	unsigned char *p, *end;
-	dhm_context dhm;
-	aes_context aes;
-	unsigned char md5sum[16];
-	ssize_t (*original_send)(int, const void *, size_t, int);	
-	original_send = dlsym(RTLD_NEXT, "send");
-	ssize_t (*original_recv)(int, void *, size_t, int);	
-	original_recv = dlsym(RTLD_NEXT, "recv");	
-	
-	/*
-     	* 1. Setup the RNG
-     	*/
-	entropy_context entropy;
-    	ctr_drbg_context ctr_drbg;
-	const char *pers = "dh_client";
-    	printf( "\n . Seeding the random number generator" );
-    	fflush( stdout );
-	
-	/* initialize random factor */
-    	entropy_init( &entropy );
-    	if( ( ret = ctr_drbg_init( &ctr_drbg, entropy_func, &entropy,
-                               (const unsigned char *) pers,
-                               strlen( pers ) ) ) != 0 ) {
-        	printf( " failed\n  ! ctr_drbg_init returned %d\n", ret );
-		entropy_free( &entropy );
-		return ret;
-    	}
-	
-	/* connect to server */
-	ssize_t (*original_connect)(int, const struct sockaddr *, socklen_t);	
-	original_connect = dlsym(RTLD_NEXT, "connect");	
-	ret =  (*original_connect)(sockfd, addr, addrlen);
-	/* error establishing connection */
-	if (ret < 0) {
-		entropy_free( &entropy );
-		return ret;
-	}
-		
-	/* get the length of the buffer with P,G, and G^Y from server */
-	ret = (*original_recv)(sockfd, buf, 4, 0);
-	if (ret == 0) {
-		entropy_free( &entropy );
-		return ret;
-	}
-
-	sscanf((char*)buf, "%zu", &buflen);
-	printf("\n . Received DHM buffer length: %zu", buflen);
-	memset( buf, 0, sizeof( buf ) );
-	/* get the buffer */
-	ret = (*original_recv)(sockfd, buf, buflen, 0);
-	if (ret == 0) {
-		entropy_free( &entropy );
-		return ret;
-	}
-	printf("\n . Received DHM buffer");	
-	
-	/* set the structure dhm context */
-	p = buf, end = buf + buflen;
-	if( ( ret = dhm_read_params( &dhm, &p, end ) ) != 0 )
-    	{
-        	printf( " failed\n  ! dhm_read_params returned %d\n\n", ret );
-        	dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-    	}
-	if( dhm.len < 64 || dhm.len > 512 )
-    	{
-        	ret = 1;
-        	printf( " failed\n  ! Invalid DHM modulus size\n\n" );
-        	dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-    	}
-	
-	/* generate client G^X value */
-	n = dhm.len;
-    	if( ( ret = dhm_make_public( &dhm, (int) dhm.len, buf, n,
-                                 ctr_drbg_random, &ctr_drbg ) ) != 0 )
-    	{
-        	printf( " failed\n  ! dhm_make_public returned %d\n\n", ret );
-        	dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-    	}
-	printf( "\n . Sending own public value to server" );
-	ret = (*original_send)(sockfd, buf, n, 0);
-	if (ret < 0) {	
-		dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-	}
-	
-	/*
-     	* 7. Derive the shared secret: K = Ys ^ Xc mod P
-     	*/
-    	printf( "\n  . Shared secret: " );
-    	fflush( stdout );
-
-    	n = dhm.len;
-    	if( ( ret = dhm_calc_secret( &dhm, buf, &n,
-                                 ctr_drbg_random, &ctr_drbg ) ) != 0 )
-    	{
-        	printf( " failed\n  ! dhm_calc_secret returned %d\n\n", ret );
-        	dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-    	}
-
-	/* allocate memory for a new connection structure */	
-	TSocket* new_sock = (TSocket*)malloc(sizeof(TSocket));
-	if (!new_sock) {
-		ret = MEMORY_ERROR;
-		dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-	}
-	new_sock->sockfd = sockfd;
-	new_sock->dhm_key = malloc(n * sizeof(char));
-	if (!new_sock->dhm_key) {
-		ret = MEMORY_ERROR;
-		dhm_free( &dhm );
-    		entropy_free( &entropy );
-		return ret;
-	}
-	memcpy(new_sock->dhm_key, buf, 32);
-	new_sock->buffered_size = 0;
-	new_sock->buf = NULL;
-	new_sock->buf_size = 0;
-	new_sock->crc = CORRECT_CRC;
-	InsLgP(&sock_list, new_sock);
-	
-    	for( n = 0; n < 32; n++ )
-        	printf( "%02x", buf[n] );
-		
-	md5( buf, 32, md5sum );
-	printf( "\n  . MD5 on DH key: " );
-	for( n = 0; n < 16; n++ )
-        	printf( "%02x", md5sum[n] );	
-
-	fflush(stdout);
-	
-	printf( "\n  . Receiving and decrypting the ciphertext" );
-    	fflush( stdout );
-
-    	aes_setkey_dec( &aes, buf, 256 );
-
-    	memset( buf, 0, sizeof( buf ) );
-
-    	(*original_recv)(sockfd, buf, 16, 0);
-	
-	aes_crypt_cbc( &aes, AES_DECRYPT, 16, md5sum, buf, buf );
-
-    	buf[16] = '\0';
-    	printf( "\n  . Plaintext is \"%s\"\n\n", (char *) buf );
-	
-	dhm_free( &dhm );
-    	entropy_free( &entropy );		
-		
-	return ret;
-}
 
 int check_control_sum(unsigned char* calc, unsigned char* received) {
 	int i;
@@ -470,9 +289,7 @@ int read(int fildes, void *buf, size_t nbyte) {
 }
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
-	
 	printf("\n --- LD_PRELOAD recv --- \n");
-	
 	int ret, total_size, align_size;	
 	unsigned char md5sum[16];
 	int buffered_size, buf_size;
@@ -501,8 +318,6 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
 				return 0;
 			}
 			sscanf((char*)temp_buf, "%i %i", &total_size, &align_size);	
-			printf("\nTotal size = %i, align_size = %i\n", total_size, align_size);			
-	
 			if ((!buf_size) || (buf_size < total_size)) {
 				if (buf_size && (buf_size < total_size)) {
 					free(t_sock->buf);
@@ -532,14 +347,16 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
 
 			aes_setkey_dec( &aes, t_sock->dhm_key, 256 );
 			md5(t_sock->dhm_key, 256, md5sum );
-			aes_crypt_cbc( &aes, AES_DECRYPT, t_sock->buf_size, md5sum, t_sock->buf, t_sock->buf);
+			aes_crypt_cbc( &aes, AES_DECRYPT, t_sock->buf_size, 
+				md5sum, t_sock->buf, t_sock->buf);
 			
 			md5(t_sock->buf, t_sock->buf_size, crc);
 			for (n = 0; n < 16; n++) {
 				printf("%02x", crc[n]);
 			}			
 			
-			if (check_control_sum(crc, temp_buf + TOTAL_SIZE + ALIGN_SIZE) == WRONG_CRC) {
+			if (check_control_sum(crc, temp_buf + TOTAL_SIZE + ALIGN_SIZE) 
+									== WRONG_CRC) {
 				t_sock->crc = WRONG_CRC;
 				printf("WRONG CRC");
 				return -1;
@@ -568,7 +385,7 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
 }
 
 int write(int fildes, const void *buf, size_t nbyte) {
-	//printf("\n--- LD_PRELOAD write --- \n");
+	printf("\n--- LD_PRELOAD write --- \n");
 	ALG a_sock = CautaLG(&sock_list, Comp, fildes);
 	if (*a_sock) {	
 		return send(fildes, buf, nbyte, 0);
@@ -608,7 +425,8 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 		if (!(t_sock->buf_size) || (t_sock->buf_size < total_size)) {
 			if (t_sock->buf_size < total_size)			
 				free(t_sock->buf);
-			t_sock->buf = (unsigned char*)malloc(total_size * sizeof(char));
+			t_sock->buf = (unsigned char*)malloc(
+							total_size * sizeof(char));
 			if (!(t_sock->buf))
 				return -1;
 			t_sock->buf_size = total_size;
@@ -616,7 +434,8 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 		newBuff = t_sock->buf;		
 		
 		memset(newBuff, 0, total_size);	
-		memcpy(newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE, (unsigned char*)buf, len);
+		memcpy(newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE, 
+						(unsigned char*)buf, len);
 		
 		md5(newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE, newSize, 
 				newBuff + TOTAL_SIZE + ALIGN_SIZE);
@@ -631,15 +450,8 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 			(unsigned char*)newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE, 
 			(unsigned char*)newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE);
 		
-		printf("\n Header:\n");		
-		for( n = 16; n < 32; n++ )
-        		printf( "%02x", newBuff[n] );	
-
 		memset(newBuff, 0, 16);	
 		sprintf((char*)(newBuff), "%i %i ", newSize, align_size);
-		printf("\nTotal size = %i, align_size = %i\n", newSize, align_size);		
-		for( n = 32; n < total_size; n++ )
-        		printf( "%02x", newBuff[n] );		
 
 		p = newBuff;
 		while (total_size > 0) {
