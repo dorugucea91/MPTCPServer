@@ -9,7 +9,7 @@
 #include <fcntl.h>	/* O_RDWR, O_CREAT, O_TRUNC, O_WRONLY */
 #include <unistd.h>	/* close */
 
-#define MAXLINE 5000 /*max text line length*/
+#define MAXLINE 4096 /*max text line length*/
 #define SERV_PORT 3000 /*port*/
 #define ERROR_READ -1
 #define ERROR_CLOSING_FILE -2

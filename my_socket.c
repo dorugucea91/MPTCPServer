@@ -298,7 +298,6 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
 	TSocket* t_sock;
 	unsigned char *p;
 	aes_context aes;
-	int n;	
 
 	ssize_t (*original_recv)(int, void *, size_t, int);	
 	original_recv = dlsym(RTLD_NEXT, "recv");	
@@ -351,9 +350,6 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
 				md5sum, t_sock->buf, t_sock->buf);
 			
 			md5(t_sock->buf, t_sock->buf_size, crc);
-			for (n = 0; n < 16; n++) {
-				printf("%02x", crc[n]);
-			}			
 			
 			if (check_control_sum(crc, temp_buf + TOTAL_SIZE + ALIGN_SIZE) 
 									== WRONG_CRC) {
@@ -403,8 +399,7 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 	unsigned char md5sum[16];
 	unsigned char* newBuff;
 	void *p;
-	TSocket* t_sock;	
-	int n;	
+	TSocket* t_sock;		
 
 	ssize_t (*original_send)(int, const void *, size_t, int);	
 	original_send = dlsym(RTLD_NEXT, "send");	
@@ -439,10 +434,6 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 		
 		md5(newBuff + TOTAL_SIZE + ALIGN_SIZE + MD5_SIZE, newSize, 
 				newBuff + TOTAL_SIZE + ALIGN_SIZE);
-	
-		printf("\n Data decoded:\n");		
-		for( n = 32; n < total_size; n++ )
-        		printf( "%02x", newBuff[n] );	
 		
 		md5( ((TSocket*)(*a_sock)->info)->dhm_key, 256, md5sum );
 		aes_setkey_enc( &aes, t_sock->dhm_key, 256 );			

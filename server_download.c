@@ -8,7 +8,7 @@
 #include <sys/stat.h>	/* open */
 #include <fcntl.h>	/* O_RDWR, O_CREAT, O_TRUNC, O_WRONLY */
 
-#define MAXLINE 4099 /*max text line length*/
+#define MAXLINE 4096 /*max text line length*/
 #define SERV_PORT 3000 /*port*/
 #define LISTENQ 8 /*maximum number of client connections */
 #define ERROR_READ -1
