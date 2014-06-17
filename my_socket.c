@@ -102,9 +102,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	/*
     * 1. Setup the RNG
     */
-   	printf( "\n . Seeding the random number generator" );
-   	fflush( stdout );
-	
+ 
 	entropy_init(&entropy);
 	if((ret = ctr_drbg_init(&ctr_drbg, entropy_func, &entropy,
 		(const unsigned char *) pers, strlen(pers))) != 0)
@@ -117,8 +115,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	/*
 	* 2b. Get the DHM modulus and generator
    	*/
-	printf( "\n . Reading DH parameters from dh_prime.txt" );
-	fflush( stdout );
 
 	if((f = fopen( "dh_prime.txt", "rb" )) == NULL)
    	{
@@ -145,8 +141,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	/*
     * 4. Setup the DH parameters (P,G,Ys)
     */
-    printf( "\n . Setting Y DH parameter" );
-    fflush( stdout );
 
    	memset(buf, 0, sizeof(buf));
 
@@ -159,14 +153,8 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 		return ret;
  	}		
 	
-	printf("\n . Sending P parameter: ");
 	length = 1024;
-	if (mpi_write_string(&dhm.P, 16, (char*)buf, &length) == 0) {
-		printf( "\n . Sent P parameter" );
-	}
-	else 
-		printf("mpi_write_string error, %i\n", (int)length);
-	fflush(stdout);
+	mpi_write_string(&dhm.P, 16, (char*)buf, &length);
 	
 	ret = (*original_send)(connfd, buf, length, 0);
 	if (ret < 0) {
@@ -175,15 +163,8 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 		return ret;
 	}
 	
-	printf("\n . Sending G parameter: ");
 	length = 1024;
-	if (mpi_write_string(&dhm.G, 16, (char*)buf, &length) == 0) {
-		printf( "\n . Sent G  parameter" );
-	}
-	else 
-		printf("mpi_write_string error, %i\n", (int)length);
-	fflush(stdout);	
-
+	mpi_write_string(&dhm.G, 16, (char*)buf, &length);
 	ret = original_send(connfd, buf, length, 0);
 	if (ret < 0) {
 		dhm_free( &dhm );
@@ -191,15 +172,8 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 		return ret;
 	}
 
-	printf("\n . Sending GX parameter: ");
 	length = 1024;
-	if (mpi_write_string(&dhm.GX, 16, (char*)buf, &length) == 0) {
-		printf( "\n . Sent X parameter" );
-	}
-	else 
-		printf("mpi_write_string error, %i\n", (int)length);
-	fflush(stdout);
-	
+	mpi_write_string(&dhm.GX, 16, (char*)buf, &length);	
 	ret = original_send(connfd, buf, length, 0);
 	if (ret < 0) {
 		dhm_free( &dhm );
@@ -207,7 +181,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 		return ret;
 	}
 
-	printf( "\n . Receiving the client's public value" );
 	memset( buf, 0, sizeof( buf ) );
 	n = 512;
 	ret = (*original_recv)(connfd, buf, n, 0);
