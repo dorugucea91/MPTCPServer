@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 #include "tlg.h"
 #include "util.h"
@@ -34,6 +35,8 @@ TLG sock_list = NULL;
 /* information for a single connection */
 typedef struct { 
 	int sockfd; 
+	aes_context aes;
+	unsigned char md5sum[16];
 	unsigned char* dhm_key; 
 	unsigned char* buf;
 	int buf_size;
@@ -43,6 +46,9 @@ typedef struct {
 	int flag;
 	int smaller_buf;
 	int crc;
+	double encrypt_time;
+	double original_send_time;
+	double md5_time;
 } TSocket;
 
 ssize_t (*original_send)(int, const void *, size_t, int);
@@ -81,8 +87,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
    	size_t n, length;
 
     unsigned char buf[2048];
-    const char *pers = "dh_server";
-	unsigned char md5sum[16];		
+    const char *pers = "dh_server";	
 
     entropy_context entropy;
     ctr_drbg_context ctr_drbg;
@@ -228,12 +233,16 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	new_sock->buffered_size = 0;
 	new_sock->p = NULL;
 	new_sock->flag = 1;
+	new_sock->encrypt_time = 0;
+	new_sock->original_send_time = 0;
+	new_sock->md5_time = 0;
+	md5(new_sock->dhm_key, 256, new_sock->md5sum );
+	aes_setkey_enc( &(new_sock->aes), new_sock->dhm_key, 256 );	
 	InsLgP(&sock_list, new_sock);
 	
-	md5(new_sock->dhm_key, 256, md5sum );
 	printf( "\n . MD5 on DH key: " );
 	for( n = 0; n < 16; n++ )
-    	printf( "%02x", md5sum[n] );	
+    	printf( "%02x", (new_sock->md5sum)[n] );	
 
 	printf( "\n\n" );
 	fflush(stdout);
@@ -422,15 +431,16 @@ int get_payload_size (int total_size) {
 	return (total_size - FLAG_SIZE - PAYLOAD_SIZE - ALIGN_SIZE - MD5_SIZE);
 }	
 
+int n = 0;
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 	int ret, newSize, align_size, total_size;
-	aes_context aes;
 	unsigned char md5sum[16];
 	unsigned char* newBuff;
 	void *p;
 	TSocket* t_sock;
 	int modified_len, offset, send_size;
 	int new_buffered_size;
+	struct timeval  tv1, tv2;
 	
 	ALG a_sock = CautaLG(&sock_list, Comp, sockfd);
 	if (*a_sock) {	
@@ -446,7 +456,7 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 			align_size = 0;	
 		}
 		new_buffered_size = newSize - align_size;
-
+		
 		if (!(t_sock->buf_size) || ((t_sock->buffered_size) != new_buffered_size)) {
 			modified_len = 1;		
 			if ((t_sock->buf_size) && (new_buffered_size < (t_sock->buffered_size))) 
@@ -464,10 +474,7 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 	
 		total_size = t_sock->buf_size;
 		newBuff = t_sock->buf;		
-					
-		md5( ((TSocket*)(*a_sock)->info)->dhm_key, 256, md5sum );
-		aes_setkey_enc( &aes, t_sock->dhm_key, 256 );	
-		
+		memcpy(md5sum, t_sock->md5sum, 16);	
 		if (!modified_len) {
 			offset = FLAG_SIZE + MD5_SIZE;
 			sprintf((char*)(newBuff), "%i", 0);
@@ -479,11 +486,22 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 			send_size = total_size;
 		}
 		memcpy(newBuff + offset, (unsigned char*)buf, len);
-		md5(newBuff + offset, newSize, newBuff + offset - MD5_SIZE);		
-		aes_crypt_cbc( &aes, AES_ENCRYPT, newSize, md5sum, 
+		gettimeofday(&tv1, NULL);
+		md5(newBuff + offset, newSize, newBuff + offset - MD5_SIZE);
+		gettimeofday(&tv2, NULL);
+		(t_sock->md5_time) += ((double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+         		(double) (tv2.tv_sec - tv1.tv_sec));
+		gettimeofday(&tv1, NULL);		
+		aes_crypt_cbc( &(t_sock->aes), AES_ENCRYPT, newSize, md5sum, 
 					(unsigned char*)newBuff + offset, 
 					(unsigned char*)newBuff + offset);
+		gettimeofday(&tv2, NULL);
+		(t_sock->encrypt_time) += ((double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+         		(double) (tv2.tv_sec - tv1.tv_sec));
 		p = newBuff;
+
+		gettimeofday(&tv1, NULL);
+		//printf("\n %i %i %i\n", send_size, len, n++);
 		while (send_size > 0) {
 			ret = (*original_send)(sockfd, p, (size_t)(send_size), flags);
 			if (ret <= 0) {
@@ -494,8 +512,11 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 			send_size -= ret;
 			p += ret;
 		}
-		if ((t_sock->smaller_buf) == 1) 
-			(*original_recv)(sockfd, md5sum, 1, 0);
+		//if ((t_sock->smaller_buf) == 1) 
+			//(*original_recv)(sockfd, md5sum, 1, 0);
+		gettimeofday(&tv2, NULL);
+		(t_sock->original_send_time) += ((double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+         		(double) (tv2.tv_sec - tv1.tv_sec));
 	}
 	else {
 		printf("Original send\n");
@@ -518,11 +539,27 @@ int close (int filedes) {
 	return (original_close)(filedes);
 }
 
+static double encr = 0;
+static double md = 0;
+static int rep = 1;
+
 int shutdown(int socket, int how) {
 	printf("\n--- LD_PRELOAD shutdown ---");
 	unsigned char* buf;
 	ALG a_sock = CautaLG(&sock_list, Comp, socket);
 	if (*a_sock) {
+		/*printf ("\nEncryption time = %f seconds", ((TSocket*)(*a_sock)->info)->encrypt_time);
+		printf ("\nOriginal send time = %f seconds", 
+				((TSocket*)(*a_sock)->info)->original_send_time); 
+		printf ("\nMd5 time = %f seconds\n", 
+				((TSocket*)(*a_sock)->info)->md5_time);*/
+		encr +=  (((TSocket*)(*a_sock)->info)->encrypt_time);
+		md += (((TSocket*)(*a_sock)->info)->md5_time);
+		
+		printf("/n Encr %f", encr/(rep));	
+		printf("/n Md5 %f", md/(rep));		
+		rep++;
+
 		printf("\nFreeing resources for socketfd: %i\n", socket);
 		free(((TSocket*)(*a_sock)->info)->dhm_key);	
 		buf = ((TSocket*)(*a_sock)->info)->buf;
