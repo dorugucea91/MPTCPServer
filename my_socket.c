@@ -19,8 +19,8 @@
 #include "polarssl/md5.h"
 
 #define MD5_SIZE 16
-#define ALIGN_SIZE 8
-#define PAYLOAD_SIZE 8
+#define ALIGN_SIZE 2
+#define PAYLOAD_SIZE 5
 #define HEADER_SIZE 32
 #define FLAG_SIZE 1
 #define HEADER_CLEAN_SIZE (FLAG_SIZE + MD5_SIZE)
@@ -473,7 +473,8 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 		}
 	
 		total_size = t_sock->buf_size;
-		newBuff = t_sock->buf;		
+		newBuff = t_sock->buf;
+		memset(newBuff, t_sock->buf_size, 0);		
 		memcpy(md5sum, t_sock->md5sum, 16);	
 		if (!modified_len) {
 			offset = FLAG_SIZE + MD5_SIZE;
@@ -482,7 +483,8 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 		}
 		else {
 			offset = FLAG_SIZE + PAYLOAD_SIZE + ALIGN_SIZE + MD5_SIZE;
-			sprintf((char*)(newBuff), "%i%i %i ", 1, newSize, align_size);
+			sprintf((char*)(newBuff), "%i%i", 1, newSize);
+			sprintf((char*)(newBuff + FLAG_SIZE + PAYLOAD_SIZE), "%i", align_size);
 			send_size = total_size;
 		}
 		memcpy(newBuff + offset, (unsigned char*)buf, len);
